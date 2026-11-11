@@ -27,7 +27,7 @@
 
       <div class="card">
         <h3>The trade-off</h3>
-        <p>Every DC has a <b>fixed annual cost</b> (lease, staff, systems). In return it is <b>closer to the customers</b>: delivery is shorter and cheaper, and more customers get next-day service. Full trucks from the plants to the DCs are cheap per pallet-km; multi-drop deliveries from a DC to the customers are about four times as expensive. Where is the point at which one more DC costs more than it saves?</p>
+        <p>Every DC has a <b>fixed annual cost</b> (lease, staff, systems). In return it is <b>closer to the customers</b>: delivery is shorter and cheaper, and more customers get next-day service. Full trucks from the plants to the DCs are cheap per pallet-km; multi-drop deliveries from a DC to the customers are about seven times as expensive. Where is the point at which one more DC costs more than it saves?</p>
         <div class="kpis">
           <div class="kpi"><div class="l">Plant → DC</div><div class="v">€${N.inbound.toFixed(2)}</div><div class="d">per pallet per km (full truck)</div></div>
           <div class="kpi"><div class="l">DC → customer</div><div class="v">€${N.outbound.toFixed(2)}</div><div class="d">per pallet per km (multi-drop)</div></div>
@@ -111,7 +111,7 @@
 
       <div class="card" id="a-fc-card">
         ${step("4 · Machine learning", "kviz", "Forecast demand for 2030", "+5 points if your guess is right")}
-        <p>A DC lease runs for 10 years, so the network must fit <b>future</b> demand. Kestrel has six years of history per customer, plus three <b>demand drivers</b> from public statistics: new homes per 1,000 residents, employment growth, and the share of households living in detached houses (households with a garden buy garden products). Three candidate models:</p>
+        <p>A DC lease runs for 10 years, so the network must fit <b>future</b> demand. Kestrel has six years of history per customer, plus three <b>demand drivers</b> from public statistics (2020–2022 averages, so they were already known when the backtest starts): new homes per 1,000 residents, employment growth, and the share of households living in detached houses (households with a garden buy garden products). Three candidate models:</p>
         <div class="method-flow">
           <div><b>Naive</b>Next years = last year. The benchmark every model must beat.</div>
           <div><b>Per-customer trend</b>A straight line (on log scale) through each customer's own 6 points, extended to 2030.</div>
@@ -122,6 +122,7 @@
         <div id="a-fc-block" style="margin-top:10px">
           <div class="btn-row"><button class="btn primary" id="a-fc-run">Run the backtest (train 2020–2023, test 2024–2025)</button></div>
           <div id="a-fc-out"></div>
+          <div id="a-fc-own"></div>
         </div>
       </div>
 
@@ -227,6 +228,13 @@
         ${step("9 · Decision", "algo", "Your recommendation to the CEO", "+2 points")}
         <p>Three to five sentences: which network do you recommend for 2030, what does it cost compared with today, what service level does it give, which requirement from the memo drives the decision, and what is the main risk?</p>
         <div id="a-dec"></div>
+      </div>
+
+      <div class="card" id="a-rev">
+        ${step("10 · Fast-forward", "tipp", `It is ${N.planYear}. What really happened?`)}
+        <p>In real life you would wait five years for this. Because Kestrel is synthetic, the page knows how demand really develops (the forecasting models never saw this). Reveal it and see what every design decision would have cost.</p>
+        <div class="btn-row"><button class="btn primary" id="a-rev-run">Reveal the real ${N.planYear} demand</button></div>
+        <div id="a-rev-out"></div>
       </div>`;
 
     /* ================= Map ================= */
@@ -289,8 +297,19 @@
 
     /* ================= 2 · Own design ================= */
     let open = my.get("a_open", ["D1"]), cur = null;
+    function restoreOwn() {
+      const r = LT.ui.serverResult("a_own");
+      if (!r || my.get("a_sub")) return false;
+      const ids = String(r.option || "").split(",").filter(id => D.DCS.some(j => j.id === id));
+      if (!ids.length) return false;
+      const e = H.solve({}, { open: ids, demand: d25 });
+      if (!e.feasible) return false;
+      my.put("a_sub", { open: e.open, total: e.total, fastPct: e.fastPct });
+      return true;
+    }
     function renderOwn() {
       const locked = ownDone();
+      if (locked) restoreOwn();
       if (locked && my.get("a_sub")) open = my.get("a_sub").open;
       cur = H.solve({}, { open, demand: d25 });
       $("#a-map", root).innerHTML = mapSvg({ res: cur, open, click: !locked });
@@ -312,12 +331,13 @@
           my.put("a_sub", { open: cur.open, total: cur.total, fastPct: cur.fastPct });
           my.set("done_a_own", true);
           renderOwn();
-          await submit({ activity: "a_own", kind: "result", value: Math.round(cur.total * 10) / 10, dir: "min", text: H.names(cur.open) + ` · ${f.pct(cur.fastPct, 0)} next-day` }, "Network submitted to the contest");
+          await submit({ activity: "a_own", kind: "result", value: Math.round(cur.total * 10) / 10, dir: "min", option: cur.open.join(","), text: H.names(cur.open) + ` · ${f.pct(cur.fastPct, 0)} next-day` }, "Network submitted to the contest");
         };
       }
     }
     board($("#a-board", root), "a_own", { unit: "€k/yr", fmt: v => f.num(v, 1), detail: true });
     renderOwn();
+    LT.api.onState(() => { if (ownDone() && !my.get("a_sub") && restoreOwn()) { renderOwn(); LT.ui.changed(); } });
     gate($("#a-own", root), [{ ok: voted("a_guess"), text: "Lock in your guess in step 1 first." }]);
 
     /* ================= 3 · Solver ================= */
@@ -332,7 +352,7 @@
         <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Open DCs</th><th class="n">€k / year</th><th class="n">vs. optimum</th><th class="n">Next-day service</th></tr></thead><tbody>
         ${all.map(e => `<tr><td>${esc(H.names(e.open))}</td><td class="n">${f.num(e.total, 1)}</td><td class="n">+${f.num(100 * (e.total / o.total - 1), 1)}%</td><td class="n">${f.pct(e.fastPct, 0)}</td></tr>`).join("")}
         </tbody></table></div>
-        <div class="note info"><b>Think about it:</b> the runner-up networks cost only a fraction of a percent more, but their service level and their exposure to demand changes differ. When the gap is that small, the decision is made by what is not in the model. And one thing is definitely not in this model: the future.</div>`;
+        <div class="note info"><b>Think about it:</b> ${all.filter(e => e.total <= o.total * 1.02).length - 1} other network(s) are within 2% of the optimum, with different sites, service levels and exposure to demand changes. When the gap is that small, the decision is made by what is not in the model. And one thing is definitely not in this model: the future.</div>`;
       guessA.reveal(String(Math.min(o.open.length, 5)));
     }
     $("#a-solve", root).onclick = () => { my.set("a_solved", true); renderOpt(); };
@@ -343,7 +363,7 @@
     $("#a-fc-data", root).innerHTML = `<table class="small-tbl"><thead><tr><th>Customer</th>${D.YEARS.map(y => `<th class="n">${y}</th>`).join("")}<th class="n">Housing</th><th class="n">Jobs %</th><th class="n">Detached %</th></tr></thead><tbody>
       ${D.CUSTOMERS.map(c => `<tr><td>${esc(c.name)}</td>${c.hist.map(v => `<td class="n">${f.num(v)}</td>`).join("")}<td class="n">${c.housing}</td><td class="n">${c.jobs}</td><td class="n">${c.detached}</td></tr>`).join("")}</tbody></table>`;
     const guessFc = vote($("#a-fc-guess", root), Object.assign({ mode: "guess" }, LT.ACT.a_fc, {
-      explain: () => { const b = F.backtest(); return `The pooled regression had the smallest backtest error (WAPE ${f.pct(b.res.pooled.wape, 1)}), the per-customer trend the largest (${f.pct(b.res.trend.wape, 1)}), worse even than the naive forecast (${f.pct(b.res.naive.wape, 1)}). More flexibility per customer means fitting more noise.`; }
+      explain: () => { const b = F.backtest(); return `Backtest WAPE: naive ${f.pct(b.res.naive.wape, 1)}, per-customer trend ${f.pct(b.res.trend.wape, 1)}, pooled regression ${f.pct(b.res.pooled.wape, 1)}. The per-customer trend hardly beats “no change” although demand really is trending: with 4 noisy points per customer its slopes are mostly noise. Pooling the customers averages that noise out.`; }
     }));
     gate($("#a-fc-block", root), [{ ok: voted("a_fc"), text: "Lock in your guess about the forecast models first." }]);
     const corr = (a, b) => {
@@ -361,10 +381,11 @@
       const bt = F.MODELS.map(x => ({ name: x.name + " (backtest)", color: MC[x.id], dash: "5 4", points: [{ x: 2023, y: c.hist[3] }, { x: 2024, y: m3.pred[ci][x.id](1) }, { x: 2025, y: m3.pred[ci][x.id](2) }] }));
       const fut = F.MODELS.map(x => ({ name: x.name, color: MC[x.id], dash: "5 4", points: [0, 1, 2, 3, 4, 5].map(h => ({ x: 2025 + h, y: h === 0 ? c.hist[5] : m5.pred[ci][x.id](h) })) }));
       const beta = m5.beta;
+      const chg = D.CUSTOMERS.map((x, i) => ({ x, i, ch: 100 * (d30[x.id] / d25[x.id] - 1) })).sort((a, b) => b.ch - a.ch);
       $("#a-fc-out", root).innerHTML = `
         <h4>Backtest result (forecasting 2024 and 2025 from data up to 2023)</h4>
         <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Model</th><th class="n">WAPE</th><th class="n">Bias</th><th>Verdict</th></tr></thead><tbody>
-        ${F.MODELS.map(x => `<tr ${x.id === b.winner ? 'class="me"' : ""}><td>${esc(x.name)}</td><td class="n">${f.pct(b.res[x.id].wape, 1)}</td><td class="n">${b.res[x.id].biasPct > 0 ? "+" : ""}${f.pct(b.res[x.id].biasPct, 1)}</td><td>${x.id === b.winner ? "✓ lowest error" : x.id === "trend" ? "fits the noise" : "benchmark"}</td></tr>`).join("")}
+        ${F.MODELS.map(x => `<tr ${x.id === b.winner ? 'class="me"' : ""}><td>${esc(x.name)}</td><td class="n">${f.pct(b.res[x.id].wape, 1)}</td><td class="n">${b.res[x.id].biasPct > 0 ? "+" : ""}${f.pct(b.res[x.id].biasPct, 1)}</td><td>${x.id === b.winner ? "✓ lowest error" : x.id === "naive" ? "benchmark" : b.res[x.id].wape > b.res.naive.wape ? "worse than the benchmark" : "barely beats the benchmark"}</td></tr>`).join("")}
         </tbody></table></div>
         <div class="field" style="max-width:340px;margin-top:10px"><label for="a-fc-sel">Look at one customer</label><select id="a-fc-sel">${D.CUSTOMERS.map(x => `<option value="${x.id}" ${x.id === sel ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></div>
         <div class="grid g2e">
@@ -381,16 +402,54 @@
         <small>Careful with reading single coefficients: across the 20 cities housing and job growth move together (correlation ${f.num(corr("housing", "jobs"), 2)}), so the model cannot cleanly separate their effects. The individual coefficients are uncertain, even negative where common sense says positive, while the combined prediction can still be good. This is called <b>multicollinearity</b>.</small>
         <h4>The ${N.planYear} forecast that we will design for (pooled model)</h4>
         <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Customer</th><th class="n">2025</th><th class="n">${N.planYear}</th><th class="n">Change</th><th class="n">Learned growth / yr</th></tr></thead><tbody>
-        ${D.CUSTOMERS.map((x, i) => ({ x, i, ch: 100 * (d30[x.id] / d25[x.id] - 1) })).sort((a, b) => b.ch - a.ch).map(r => `<tr><td>${esc(r.x.name)}</td><td class="n">${f.num(d25[r.x.id])}</td><td class="n">${f.num(d30[r.x.id])}</td><td class="n" style="color:${r.ch >= 0 ? "var(--ok)" : "var(--bad)"}">${r.ch >= 0 ? "+" : ""}${f.pct(r.ch, 0)}</td><td class="n">${f.pct(100 * m5.pred[r.i].gPooled, 1)}</td></tr>`).join("")}
+        ${chg.map(r => `<tr><td>${esc(r.x.name)}</td><td class="n">${f.num(d25[r.x.id])}</td><td class="n">${f.num(d30[r.x.id])}</td><td class="n" style="color:${r.ch >= 0 ? "var(--ok)" : "var(--bad)"}">${r.ch >= 0 ? "+" : ""}${f.pct(r.ch, 0)}</td><td class="n">${f.pct(100 * m5.pred[r.i].gPooled, 1)}</td></tr>`).join("")}
         <tr><td><b>Total</b></td><td class="n"><b>${f.num(tot25)}</b></td><td class="n"><b>${f.num(tot30)}</b></td><td class="n"><b>+${f.pct(100 * (tot30 / tot25 - 1), 1)}</b></td><td></td></tr>
         </tbody></table></div>
-        <div class="note info"><b>Notice:</b> total demand grows only a little, but the <b>geography</b> shifts: the growing industrial cities (Kecskemét, Debrecen, Győr) and the Budapest agglomeration gain, the north-east (Miskolc, Eger, Salgótarján) and the south-east lose. For a network, <i>where</i> demand is matters more than how much there is.</div>
-        <div class="note info"><b>Why does Székesfehérvár go down although its learned growth is positive?</b> Its 2025 value (898) was an unusual jump. The model estimates each customer's level from all six years, so a single spike is treated as noise, not as the new normal. The naive model would carry the spike all the way to ${N.planYear}. Eger is the same story.</div>`;
+        <div class="note info"><b>Notice:</b> total demand grows by ${f.pct(100 * (tot30 / tot25 - 1), 0)}, but the <b>geography</b> shifts much more: ${esc(chg.slice(0, 3).map(r => r.x.name).join(", "))} gain the most, ${esc(chg.slice(-3).map(r => r.x.name).join(", "))} lose the most. For a network, <i>where</i> demand is matters more than how much there is.</div>
+        <div class="note info"><b>Why can the forecast differ from “2025 plus growth”?</b> The model estimates each customer's level from all six years, so one unusually high or low year is treated as noise, not as the new normal. The naive model would carry such a spike all the way to ${N.planYear}.</div>`;
       $("#a-fc-sel", root).onchange = e => { my.put("a_fc_cust", e.target.value); renderFc(); };
       guessFc.reveal(b.winner);
     }
-    $("#a-fc-run", root).onclick = () => { my.set("a_fc_run", true); renderFc(); };
-    if (my.get("a_fc_run")) renderFc();
+    /* ---- the student's own pooled model and the forecast they sign off ---- */
+    const FEAT_NAMES = { housing: "new homes", jobs: "job growth", detached: "detached houses" };
+    const myFeats = () => { const v = my.get("a_feats", F.FEATURES).filter(k => F.FEATURES.includes(k)); return v.length ? v : F.FEATURES; };
+    const myChoice = () => my.get("vote_a_fcsel") || null;
+    const choiceName = () => ({ naive: "naive", trend: "per-customer trend", pooled: "pooled, all drivers", own: "own model: " + myFeats().map(k => FEAT_NAMES[k]).join(" + ") }[myChoice()] || "");
+    const myDemand = () => { const c = myChoice(); return c === "naive" ? d25 : c === "trend" ? F.demand("trend" + N.planYear) : c === "own" ? F.demand("pooled" + N.planYear, myFeats()) : d30; };
+    let fcOwnBuilt = false;
+    function renderFcOwn() {
+      const box = $("#a-fc-own", root);
+      if (!fcOwnBuilt) {
+        fcOwnBuilt = true;
+        box.innerHTML = `<h4 style="margin-top:16px">Your turn: build your own pooled model</h4>
+          <p>Which drivers should the model learn from? More features are not automatically better: with only 20 customers every extra coefficient is estimated from little data. Tick the drivers and watch the backtest error.</p>
+          <div class="btn-row" id="a-feat">${F.FEATURES.map(k => `<label class="btn small"><input type="checkbox" value="${k}" style="margin:0 6px 0 0"> ${FEAT_NAMES[k]}</label>`).join("")}</div>
+          <div id="a-feat-out"></div>
+          <div id="a-fcsel"></div>`;
+        $$("#a-feat input", box).forEach(cb => (cb.onchange = () => {
+          if (myChoice()) return;
+          const v = $$("#a-feat input", box).filter(x => x.checked).map(x => x.value);
+          if (!v.length) { cb.checked = true; toast("Keep at least one driver.", "err"); return; }
+          my.put("a_feats", v); renderFcOwn();
+        }));
+        vote($("#a-fcsel", box), Object.assign({ mode: "opinion" }, LT.ACT.a_fcsel));
+        document.addEventListener("kl-change", () => { if (fcOwnBuilt) renderFcOwn(); });
+      }
+      const fs = myFeats(), locked = !!myChoice();
+      $$("#a-feat input", box).forEach(cb => { cb.checked = fs.includes(cb.value); cb.disabled = locked; });
+      const all = F.backtest(), own = F.backtest(fs);
+      const combos = [["housing"], ["jobs"], ["detached"], ["housing", "jobs"], ["housing", "detached"], ["jobs", "detached"], ["housing", "jobs", "detached"]];
+      $("#a-feat-out", box).innerHTML = `<div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Pooled model with…</th><th class="n">Backtest WAPE</th><th class="n">Bias</th></tr></thead><tbody>
+        <tr class="me"><td><b>Your model:</b> ${esc(fs.map(k => FEAT_NAMES[k]).join(" + "))}</td><td class="n"><b>${f.pct(own.res.pooled.wape, 1)}</b></td><td class="n">${own.res.pooled.biasPct > 0 ? "+" : ""}${f.pct(own.res.pooled.biasPct, 1)}</td></tr>
+        <tr><td>All three drivers</td><td class="n">${f.pct(all.res.pooled.wape, 1)}</td><td class="n">${all.res.pooled.biasPct > 0 ? "+" : ""}${f.pct(all.res.pooled.biasPct, 1)}</td></tr>
+        <tr><td>Naive benchmark</td><td class="n">${f.pct(all.res.naive.wape, 1)}</td><td class="n">${all.res.naive.biasPct > 0 ? "+" : ""}${f.pct(all.res.naive.biasPct, 1)}</td></tr>
+        </tbody></table></div>
+        <details class="mini"><summary>All seven feature combinations</summary><table class="small-tbl"><tbody>${combos.map(c => `<tr><td>${esc(c.map(k => FEAT_NAMES[k]).join(" + "))}</td><td class="n">${f.pct(F.backtest(c).res.pooled.wape, 1)}</td></tr>`).join("")}</tbody></table>
+        <small>Trying all combinations and keeping the best on the same two test years is itself a mild form of overfitting (“model selection bias”). Prefer the simpler model when the difference is small.</small></details>
+        ${locked ? `<div class="note ok"><b>Your forecast is locked in:</b> ${esc(choiceName())}.</div>` : ""}`;
+    }
+    $("#a-fc-run", root).onclick = () => { my.set("a_fc_run", true); renderFc(); renderFcOwn(); };
+    if (my.get("a_fc_run")) { renderFc(); renderFcOwn(); }
 
     /* ================= 5 · Re-optimise for 2030 ================= */
     const shiftAnswer = () => {
@@ -399,23 +458,26 @@
       return b.length > a.length ? "add" : b.length < a.length ? "drop" : "swap";
     };
     const guessShift = vote($("#a-shift-guess", root), Object.assign({ mode: "guess" }, LT.ACT.a_shift, {
-      explain: () => `2025 optimum: ${esc(H.names(getOpt25().open))}. ${N.planYear} optimum: ${esc(H.names(getOpt30().open))}. The number of DCs stays, but one moves, following the demand.`
+      explain: () => `2025 optimum: ${esc(H.names(getOpt25().open))}. ${N.planYear} optimum: ${esc(H.names(getOpt30().open))}. ${{ same: "The network does not change.", swap: "The number of DCs stays, but one moves, following the demand.", add: "Growth makes one more DC pay off.", drop: "One DC no longer pays off." }[shiftAnswer()]}`
     }));
-    gate($("#a-2030-block", root), [{ ok: () => !!my.get("a_fc_run"), text: "Run the backtest in step 4 first." }, { ok: voted("a_shift"), text: "Lock in your guess about the 2030 network first." }]);
+    gate($("#a-2030-block", root), [{ ok: () => !!my.get("a_fc_run"), text: "Run the backtest in step 4 first." }, { ok: voted("a_fcsel"), text: "Choose and lock in your forecast at the end of step 4 first." }, { ok: voted("a_shift"), text: "Lock in your guess about the 2030 network first." }]);
     function render2030() {
       const o25 = getOpt25(), o30 = getOpt30();
       const old30 = H.solve({}, { open: o25.open, demand: d30 });
       const sub = my.get("a_sub"), sub30 = sub ? H.solve({}, { open: sub.open, demand: d30 }) : null;
       const moved = o30.open.filter(x => !o25.open.includes(x)), gone = o25.open.filter(x => !o30.open.includes(x));
+      const mine = myChoice() && myChoice() !== "pooled" ? H.solve({}, { demand: myDemand() }) : null, mine30 = mine && mine.feasible ? H.solve({}, { open: mine.open, demand: d30 }) : null;
       $("#a-2030-out", root).innerHTML = `<div class="grid g2e"><div class="map-wrap">${mapSvg({ res: o30, demand: d30 })}</div><div>
         <div class="note ${moved.length || gone.length ? "warn" : "ok"}"><b>${N.planYear} optimum: ${esc(H.names(o30.open))}</b>${moved.length || gone.length ? `. Compared with 2025: ${gone.map(dcName).join(", ")} → ${moved.map(dcName).join(", ")}.` : ", the same as for 2025."}</div>
         <table class="small-tbl"><thead><tr><th>Network</th><th class="n">€k / yr on ${N.planYear} demand</th><th class="n">vs. ${N.planYear} optimum</th></tr></thead><tbody>
           <tr class="me"><td>${N.planYear} optimum: ${esc(H.names(o30.open))}</td><td class="n">${f.num(o30.total, 1)}</td><td class="n">–</td></tr>
           <tr><td>2025 optimum: ${esc(H.names(o25.open))}</td><td class="n">${f.num(old30.total, 1)}</td><td class="n">+${f.num(100 * (old30.total / o30.total - 1), 1)}%</td></tr>
           ${sub30 && sub30.feasible ? `<tr><td>Your submitted network: ${esc(H.names(sub.open))}</td><td class="n">${f.num(sub30.total, 1)}</td><td class="n">+${f.num(100 * (sub30.total / o30.total - 1), 1)}%</td></tr>` : ""}
+          ${mine && mine.feasible && mine.open.join() !== o30.open.join() ? `<tr><td>Optimum for <b>your</b> chosen forecast (${esc(choiceName())}): ${esc(H.names(mine.open))}</td><td class="n">${mine30.feasible ? f.num(mine30.total, 1) : "not feasible"}</td><td class="n">${mine30.feasible ? "+" + f.num(100 * (mine30.total / o30.total - 1), 1) + "%" : "–"}</td></tr>` : ""}
           <tr><td>Today: Ecser only</td><td class="n">${f.num(H.solve({}, { open: ["D1"], demand: d30 }).total, 1)}</td><td class="n">+${f.num(100 * (H.solve({}, { open: ["D1"], demand: d30 }).total / o30.total - 1), 1)}%</td></tr>
         </tbody></table>
-        <div class="note info"><b>Why it matters:</b> the cost difference per year looks modest, but a DC lease runs for 10 years, and moving a DC later costs a relocation project. Forecast first, then optimise. The forecast is an input of the optimisation, so its errors flow straight into the network.</div>
+        <small>From here on, the lab uses one reference forecast for everybody: the pooled model with all three drivers. Your own forecast choice comes back in the last step, when ${N.planYear} arrives.</small>
+        <div class="note info"><b>Why it matters:</b> the difference is paid every year of a 10-year lease, and moving a DC later costs a relocation project. Forecast first, then optimise. The forecast is an input of the optimisation, so its errors flow straight into the network.</div>
       </div></div>`;
       guessShift.reveal(shiftAnswer());
     }
@@ -448,7 +510,7 @@
       $("#a-k-elbow", root).innerHTML = `<div class="grid g2e" style="margin-top:10px">
         <div><b>Elbow chart:</b> average distance to the centre vs. k${lines([{ name: "avg. distance (km)", color: "#005f92", points: el.map(e => ({ x: e.k, y: e.wd })) }], { y0: 0, yfmt: v => f.num(v), legend: false, title: "elbow" })}</div>
         <div><b>But what does each k cost?</b> (k-means sites, evaluated by the LP)${lines([{ name: "total cost €k / yr", color: "#a1772b", points: el.filter(e => e.cost).map(e => ({ x: e.k, y: e.cost })) }, { name: "solver optimum", color: "#007548", dash: "4 4", dots: false, points: [{ x: 1, y: o30.total }, { x: 6, y: o30.total }] }], { yfmt: v => f.num(v), title: "cost by k" })}</div></div>
-        <div class="note info"><b>Read the two charts together:</b> the distance curve keeps falling, it has no notion of fixed cost. The cost curve has a minimum, because every extra DC adds about €85k per year. Clustering tells you <i>where</i> demand concentrates; only the cost model tells you <i>how many</i> sites pay off.</div>`;
+        <div class="note info"><b>Read the two charts together:</b> the distance curve keeps falling, it has no notion of fixed cost. The cost curve has a minimum, because every extra DC adds its fixed cost (€84–135k per year). Clustering tells you <i>where</i> demand concentrates; only the cost model tells you <i>how many</i> sites pay off.</div>`;
     }
     $("#a-k-run", root).onclick = () => { my.set("a_k_run", true); renderK(); };
     vote($("#a-kq", root), Object.assign({ mode: "quiz" }, LT.ACT.a_kq));
@@ -499,6 +561,7 @@ OUTPUT: answer with ONE JSON object only, no other text, using exactly this sche
         const errs = [];
         if (!["actual2025", "forecast" + N.planYear].includes(String(spec.demand_basis))) errs.push(`demand_basis must be "actual2025" or "forecast${N.planYear}"`);
         ["must_open", "must_close"].forEach(k => { if (!Array.isArray(spec[k])) errs.push(k + " must be a list"); else spec[k].forEach(id => { if (!D.DCS.some(j => j.id === String(id).toUpperCase())) errs.push(`${k}: unknown DC ID “${id}”`); }); });
+        if (Array.isArray(spec.must_open) && Array.isArray(spec.must_close)) spec.must_open.forEach(id => { if (spec.must_close.map(x => String(x).toUpperCase()).includes(String(id).toUpperCase())) errs.push(`${id} is in must_open and in must_close at the same time (the solver treats it as closed)`); });
         ["max_dcs", "max_distance_km"].forEach(k => { if (spec[k] !== null && spec[k] !== undefined && typeof spec[k] !== "number") errs.push(k + " must be a number or null"); });
         if (spec.service !== null && spec.service !== undefined && (typeof spec.service !== "object" || typeof spec.service.radius_km !== "number" || typeof spec.service.min_share_pct !== "number")) errs.push("service must be {radius_km: number, min_share_pct: number} or null");
         if (spec.plant_min_utilisation_pct && typeof spec.plant_min_utilisation_pct === "object") Object.keys(spec.plant_min_utilisation_pct).forEach(k => { if (!D.PLANTS.some(p => p.id === k.toUpperCase())) errs.push(`plant_min_utilisation_pct: unknown plant “${k}”`); });
@@ -533,7 +596,7 @@ OUTPUT: answer with ONE JSON object only, no other text, using exactly this sche
         ["total cost (€k/yr)", r.total], ["fixed cost (€k)", r.fixK], ["inbound cost (€k)", r.inK], ["outbound cost (€k)", r.outK],
         ["next-day share (%)", r.fastPct], ["avg. distance (km)", r.avgKm], ["cost per pallet (€)", r.perPallet], ["number of DCs", r.open.length],
         ["saving vs. Ecser only (€k)", base.total - r.total], ["saving vs. Ecser only (%)", 100 * (1 - r.total / base.total)],
-        ["Zalaegerszeg plant utilisation (%)", 100 * r.plantUse.P2 / 8000], ["Szolnok plant utilisation (%)", 100 * r.plantUse.P1 / 9000], ["pallets per year", r.demandTotal], ["plan year", N.planYear], ["service radius (km)", N.fastKm]
+        ["Zalaegerszeg plant utilisation (%)", 100 * r.plantUse.P2 / D.PLANTS[1].cap], ["Szolnok plant utilisation (%)", 100 * r.plantUse.P1 / D.PLANTS[0].cap], ["pallets per year", r.demandTotal], ["plan year", N.planYear], ["service radius (km)", N.fastKm]
       ];
       const div = document.createElement("div");
       div.innerHTML = `<details class="box" style="margin-top:12px"><summary><span class="ikon">↻</span><span>Optional round 2: close the loop<small>Give the solver's result back to the AI, let it write the CEO summary, and check every number it uses</small></span></summary><div class="tartalom">
@@ -548,7 +611,7 @@ Open DCs: ${r.open.map(id => H.dc(id).name).join(", ")}
 Total cost: ${f.num(r.total, 1)} thousand EUR per year (fixed ${f.num(r.fixK, 1)}, inbound ${f.num(r.inK, 1)}, outbound ${f.num(r.outK, 1)})
 Cost per pallet: ${f.num(r.perPallet, 2)} EUR; pallets per year: ${f.num(r.demandTotal)}
 Next-day share (within ${N.fastKm} km): ${f.num(r.fastPct, 1)}%; average delivery distance: ${f.num(r.avgKm, 0)} km
-Plant utilisation: Szolnok ${f.num(100 * r.plantUse.P1 / 9000, 1)}%, Zalaegerszeg ${f.num(100 * r.plantUse.P2 / 8000, 1)}%
+Plant utilisation: Szolnok ${f.num(100 * r.plantUse.P1 / D.PLANTS[0].cap, 1)}%, Zalaegerszeg ${f.num(100 * r.plantUse.P2 / D.PLANTS[1].cap, 1)}%
 Today's network (Ecser only) on the same demand: ${f.num(base.total, 1)} thousand EUR per year
 
 Write a summary for the CEO in at most 120 words. Use only numbers that appear in this output (you may compute the saving versus today).`;
@@ -576,6 +639,7 @@ Write a summary for the CEO in at most 120 words. Use only numbers that appear i
         { id: "trend", name: `Trend ${N.planYear}`, d: F.demand("trend" + N.planYear) },
         { id: "pooled", name: `Pooled ML ${N.planYear}`, d: d30 }
       ];
+      if (myChoice() === "own" && myFeats().length < 3) sc.push({ id: "own", name: "Your model", d: myDemand() });
       const cand = new Map();
       sc.forEach(s => { s.all = H.enumerate({}, s.d); s.best = s.all[0].total; s.all.slice(0, 4).forEach(e => cand.set(e.open.join(), e.open)); });
       const sub = my.get("a_sub"); if (sub) cand.set(sub.open.join(), sub.open);
@@ -598,6 +662,41 @@ Write a summary for the CEO in at most 120 words. Use only numbers that appear i
     /* ================= 9 · Decision ================= */
     textBox($("#a-dec", root), Object.assign({}, LT.ACT.a_dec, { placeholder: "I recommend …", button: "Submit recommendation", minWords: 30, okMsg: "Recommendation submitted: +2 points", option: () => (my.get("a_sub") ? "own: " + H.names(my.get("a_sub").open) : "") }));
     gate($("#a-dec-card", root), [{ ok: ownDone, text: "Submit your own network first." }, { ok: () => !!my.get("a_2030"), text: "Solve the 2030 network in step 5 first." }]);
+
+    /* ================= 10 · Fast-forward: what the plan year really brought ================= */
+    function renderRev() {
+      const tr = F.truth(), best = H.solve({}, { demand: tr });
+      const on = open => H.solve({}, { open, demand: tr });
+      const fcs = [["Naive (2025 levels)", d25], ["Per-customer trend", F.demand("trend" + N.planYear)], ["Pooled, all three drivers", d30]];
+      if (myChoice() === "own") fcs.push(["Your model: " + myFeats().map(k => FEAT_NAMES[k]).join(" + "), myDemand()]);
+      const nets = [];
+      const add = (label, open, cls) => { if (open && open.length) nets.push({ label, open, e: on(open), cls }); };
+      add("Designed for 2025 actuals (the 2025 optimum)", getOpt25().open);
+      add("Designed for the reference forecast (pooled ML)", getOpt30().open);
+      const mineO = myChoice() ? H.solve({}, { demand: myDemand() }) : null;
+      if (mineO && mineO.feasible) add(`Designed for YOUR forecast (${choiceName()})`, mineO.open, "me");
+      if (my.get("a_sub")) add("Your hand-built network from step 2", my.get("a_sub").open, "me");
+      const kr = keyRes(); if (kr.feasible) add("The CEO memo, correctly modelled (step 7)", kr.open);
+      add("Doing nothing: Ecser only", ["D1"]);
+      const naiveNet = nets[0].e, pct = e => 100 * (e.total / best.total - 1);
+      $("#a-rev-out", root).innerHTML = `
+        <h4>How good were the forecasts?</h4>
+        <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Forecast made in 2025</th><th class="n">Total ${N.planYear} forecast</th><th class="n">Error vs. real ${N.planYear} (WAPE)</th></tr></thead><tbody>
+        ${fcs.map(([n, d], i) => `<tr ${i === 3 ? 'class="me"' : ""}><td>${esc(n)}</td><td class="n">${f.num(F.total(d))}</td><td class="n"><b>${f.pct(F.wape(d, tr), 1)}</b></td></tr>`).join("")}
+        <tr><td><i>What really happened</i></td><td class="n"><i>${f.num(F.total(tr))}</i></td><td class="n">–</td></tr></tbody></table></div>
+        <h4>What does each network cost on the real ${N.planYear} demand?</h4>
+        <div class="grid g2e"><div class="map-wrap">${mapSvg({ res: best, demand: tr })}</div><div>
+        <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Network</th><th class="n">€k / year</th><th class="n">vs. best possible</th></tr></thead><tbody>
+        <tr><td><b>Best possible with hindsight:</b> ${esc(H.names(best.open))}</td><td class="n">${f.num(best.total, 1)}</td><td class="n">–</td></tr>
+        ${nets.map(n => `<tr class="${n.cls || ""}"><td>${esc(n.label)}: ${esc(H.names(n.open))}</td><td class="n">${n.e.feasible ? f.num(n.e.total, 1) : "cannot serve the demand"}</td><td class="n">${n.e.feasible ? "+" + f.num(pct(n.e), 1) + "%" : "–"}</td></tr>`).join("")}
+        </tbody></table></div>
+        ${naiveNet.feasible ? `<div class="note warn"><b>The price of designing for last year:</b> ${f.keur(naiveNet.total - best.total, 0)} every year (+${f.num(pct(naiveNet), 1)}%), over a 10-year lease about ${f.keur(10 * (naiveNet.total - best.total), 0)}.</div>` : ""}
+        <div class="note info"><b>Take-aways.</b> (1) A forecast does not have to be perfect to lead to the right network: what matters is whether its errors change the decision. (2) A badly specified model (try “detached houses” alone) can be worse than no model. (3) You never get this table in real life. Backtesting and scenario analysis are the substitutes you have at decision time.</div>
+        </div></div>`;
+    }
+    $("#a-rev-run", root).onclick = () => { my.set("a_rev", true); renderRev(); };
+    gate($("#a-rev", root), [{ ok: () => done("a_dec"), text: "Submit your recommendation in step 9 first: decide before you see the future." }]);
+    if (my.get("a_rev")) renderRev();
     void aiRoot;
   };
 })();

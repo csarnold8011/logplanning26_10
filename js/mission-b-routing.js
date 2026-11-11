@@ -1,12 +1,12 @@
 /* Session B: daily delivery routes (capacitated VRP with time windows).
    Own plan → travel-time ML → reality check → clustering → classic heuristics
-   → AI-written heuristic contest (sandboxed code, two days) → decision memo */
+   → AI-written heuristic contest (sandboxed code, two practice days + a hidden test day) → decision memo */
 (function () {
   const LT = (window.LT = window.LT || {});
   LT.missions = LT.missions || {};
   const RC = ["#005f92", "#a1772b", "#007548", "#f08681", "#00afa9", "#38ac55", "#008cc7", "#6f6f6f"];
   // label placement around dense Budapest: w = left, e = right, s = below, n = above (default)
-  const LP = { G01: "w", G02: "w", G03: "e", G04: "s", G05: "w", G06: "n", G07: "w", G08: "w", G09: "w", G10: "e", G11: "w", G12: "e", G13: "e", G14: "e", G15: "n", G16: "s", G17: "w", G18: "s", G19: "w", G20: "n", G21: "n", G22: "e", G23: "n", G24: "n" };
+  const LP = { G01: "e", G02: "w", G03: "e", G04: "s", G05: "w", G06: "n", G07: "w", G08: "w", G09: "w", G10: "e", G11: "w", G12: "e", G13: "e", G14: "e", G15: "n", G16: "s", G17: "w", G18: "e", G19: "w", G20: "n", G21: "n", G22: "e", G23: "n", G24: "n" };
   const short = n => n.replace(/^Bp [IVX]+ /, "");
 
   LT.missions.b = function (root) {
@@ -72,7 +72,7 @@
         <div class="grid g2">
           <div>
             <div class="map-wrap"><div id="b-map"></div>
-              <div class="legend"><span>■ Ecser DC</span><span><i style="background:var(--ink-3);border-radius:50%"></i>not yet on a route</span><span>number in circle: pallets</span><span>⏰ window closes</span><span>2/3: route 2, stop 3</span></div></div>
+              <div class="legend"><span>■ Ecser DC</span><span><i style="background:var(--ink-3);border-radius:50%"></i>not yet on a route</span><span>number in circle: pallets</span><span>⏰ window closes</span><span>2/3: route 2, stop 3</span><span>dashed circle: Budapest</span></div></div>
             <div class="btn-row" id="b-buttons"></div>
           </div>
           <div>
@@ -87,11 +87,11 @@
 
       <div class="card" id="b-ml">
         ${step("3 · Machine learning", "kviz", "How long does a trip really take?", "+5 points if your guess is right")}
-        <p>Kestrel's trucks have telematics. The log holds <b>${T.log().length} past trips</b> between stores: distance, the <b>urban share</b> of the trip (0 = open road, 1 = inner city), the <b>departure hour</b>, and the measured minutes. We split it randomly: ${T.train().length} trips to <b>train</b> the models, ${T.test().length} trips held back to <b>test</b> them.</p>
+        <p>Kestrel's trucks have telematics. The log holds <b>${T.log().length} past trips</b> between stores: distance, the <b>urban share</b> of the trip (0 = open road, 1 = inner city), the <b>departure hour</b>, and the measured minutes. We split it randomly into three parts: ${T.train().length} trips to <b>train</b> the models, ${T.val().length} <b>validation</b> trips to choose between settings, and ${T.test().length} <b>test</b> trips that stay sealed until the very end.</p>
         <details class="mini"><summary>A look at the data</summary><div id="b-log"></div></details>
         <div id="b-tt-guess"></div>
         <div id="b-ml-block" style="margin-top:10px">
-          <div class="btn-row"><button class="btn primary" id="b-ml-run">Train and test the models</button></div>
+          <div class="btn-row"><button class="btn primary" id="b-ml-run">Train the models</button></div>
           <div id="b-ml-out"></div>
         </div>
       </div>
@@ -109,7 +109,8 @@
         <p>The result is a set of readable if-then rules, and it discovers the interaction “urban AND rush hour” by itself, because a split on hour can happen inside the urban branch only.</p>
         <h4>3. Testing</h4>
         <div class="keplet-sor">MAE = average |predicted minutes − actual minutes|</div>
-        <p>A model must be judged on trips it has <b>not seen</b> during training (the test set). The training error always falls as the tree gets deeper; the test error falls, then flattens or rises: the deep tree starts memorising noise. That is <b>overfitting</b>, and the depth is a <b>hyperparameter</b> chosen on held-out data.</p>
+        <p>A model must be judged on trips it has <b>not seen</b> during training. The training error always falls as the tree gets deeper; the error on unseen trips falls, then flattens or rises: the deep tree starts memorising noise. That is <b>overfitting</b>. Depth, leaf size and the feature list are <b>hyperparameters</b>: you choose them, the algorithm does not learn them.</p>
+        <p><b>Why three sets?</b> If you try twenty settings and keep the one with the best score on some trips, that score is no longer an honest estimate: you have (mildly) fitted your choice to those trips. So the data is split three ways: <b>training</b> (fit the tree), <b>validation</b> (compare settings), <b>test</b> (opened once, for the final number). With little data, k-fold cross-validation replaces the single validation set.</p>
         <h4>4. Could the linear model be rescued?</h4>
         <p>Yes, with <b>feature engineering</b>: add km × urban, km × rush-hour, km × urban × rush-hour as new features. A good analyst would do that, but must know which interactions to add. The tree finds them from the data. In practice, gradient-boosted trees (many small trees added up, e.g. XGBoost or LightGBM) are the standard tool for travel-time and ETA prediction.</p>
         <h4>5. Limits</h4>
@@ -144,7 +145,7 @@
         <p>Every heuristic optimises the cost <b>as computed by its time model</b>. If the model says the morning ring road takes 18 minutes but it really takes 55, the “optimal” plan arrives late. Better predictions are often worth more than a better algorithm.</p>`, "⇄")}
 
       <div class="card ai-card" id="b-ai">
-        ${step("6 · AI as programmer", "ai", "Let the AI write a routing heuristic, then race it", "contest: lowest cost over two days")}
+        ${step("6 · AI as programmer", "ai", "Let the AI write a routing heuristic, then race it", "contest: lowest cost on a hidden test day")}
         <p>The page contains a small route-building engine. It fills one truck at a time: at every step it looks at all stores that still fit in the truck and asks a <b>scoring function</b> which one to visit next (the <b>lowest score wins</b>). If every candidate gets a non-finite score (e.g. <code>Infinity</code>), the truck returns and the next one starts. The nearest-neighbour rule is simply <code>return c.km;</code>. Your task: get an AI to write a better <code>score(c, s)</code>.</p>
         <details class="mini" open><summary>What the scoring function receives</summary><div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Field</th><th>Meaning</th></tr></thead><tbody>
           <tr><td><code>c.km</code>, <code>c.min</code></td><td>distance and predicted travel minutes (ML model) from the current position to the candidate</td></tr>
@@ -161,7 +162,7 @@
           <div class="lepes"><span class="sz">1</span><div><b>Copy the prompt</b> and paste it into an AI.</div></div>
           <div class="lepes"><span class="sz">2</span><div><b>Paste the code</b> it writes into the editor and run it in the sandbox.</div></div>
           <div class="lepes"><span class="sz">3</span><div><b>Iterate:</b> copy the feedback prompt with your results, get an improved version.</div></div>
-          <div class="lepes"><span class="sz">4</span><div><b>Submit</b> your best version to the contest (as many times as you like; the best counts).</div></div>
+          <div class="lepes"><span class="sz">4</span><div><b>Submit</b> to the contest: your rule is then run on a <b>hidden third day</b> you never saw. You have 3 submissions; the best counts.</div></div>
         </div>
         <div class="btn-row">
           <button class="btn ai" id="b-ai-p1">Copy prompt (round 1)</button>
@@ -171,20 +172,21 @@
         <details class="mini"><summary>Why is the prompt written this way?</summary><div class="prompt-magy">
           <div class="pm-sor"><span class="pm-resz">Interface contract</span><span>The exact function signature and every field with its unit. Code that does not match the interface cannot run, so the contract must be unambiguous.</span></div>
           <div class="pm-sor"><span class="pm-resz">Objective in money</span><span>The AI gets the cost parameters, so it can weigh a late delivery (${f.eur(VP.latePenalty)}) against extra kilometres (${f.eur(VP.perKm, 2)}/km) and an extra truck (${f.eur(VP.fixDay)}).</span></div>
-          <div class="pm-sor"><span class="pm-resz">No instance data</span><span>It sees a summary, not the store list: the heuristic should work on any day. The contest runs it on Friday AND Monday to reward rules that generalise.</span></div>
+          <div class="pm-sor"><span class="pm-resz">No instance data</span><span>It sees a summary, not the store list: the heuristic should work on any day. The contest is decided on a hidden day to reward rules that generalise.</span></div>
           <div class="pm-sor"><span class="pm-resz">Constraints on code</span><span>Pure function, no state, no external calls: it must run in a sandbox, fast, thousands of times.</span></div>
           <div class="pm-sor"><span class="pm-resz">Feedback loop</span><span>The round-2 prompt sends back measured results (cost, late stores, routes). The AI improves on evidence, not on its own guesses: a small version of LLM-driven algorithm search.</span></div>
         </div></details>
         <div class="field" style="margin-top:12px"><label for="b-code">Heuristic code <span class="hint">(paste the AI's answer; the page extracts <code>function score(c, s)</code>)</span></label>
           <textarea id="b-code" class="code-area" spellcheck="false"></textarea></div>
         <div class="btn-row">
-          <button class="btn primary" id="b-run">Run in sandbox (Friday + Monday)</button>
+          <button class="btn primary" id="b-run">Run in sandbox (Friday + Monday practice days)</button>
           <button class="btn small" id="b-load-nn">Load: nearest neighbour</button>
           <button class="btn small" id="b-load-urg">Load: most urgent first</button>
         </div>
         <div id="b-run-out"></div>
         <div id="b-hist"></div>
-        <h4 style="margin-top:14px">AI heuristic contest</h4><div id="b-heur-board"></div>
+        <div id="b-subs"></div>
+        <h4 style="margin-top:14px">AI heuristic contest (cost on the hidden day)</h4><div id="b-heur-board"></div>
         <div style="margin-top:14px"><h4>Your judgement <span class="pts">+4 points</span></h4>
           <p class="muted">At least 3 sentences: which AI, how many rounds, what idea made the difference, where did the code fail or surprise you, would you trust it in production without the sandbox tests?</p>
           <div id="b-ai-refl"></div></div>
@@ -196,12 +198,12 @@
         <div class="method-flow">
           <div><b>Generate</b>The LLM writes score(c, s) from the interface contract.</div>
           <div><b>Sandbox</b>The code runs isolated (Web Worker, no network, time limit).</div>
-          <div><b>Evaluate</b>The routes are scored with the same cost function on two days.</div>
+          <div><b>Evaluate</b>The routes are scored with the same cost function on two practice days.</div>
           <div><b>Feedback</b>Scores and failure details go back to the LLM.</div>
           <div><b>Select</b>Keep the best version; repeat.</div>
         </div>
-        <h4>2. Why two days?</h4>
-        <p>A rule tuned to Friday's map (e.g. “visit G06 first”) can look brilliant on Friday and fail on Monday. Evaluating on several instances is the heuristic-design version of the <b>train/test split</b>. Research systems use dozens of instances for the same reason.</p>
+        <h4>2. Practice days and a hidden test day</h4>
+        <p>A rule tuned to Friday's map (e.g. “visit G06 first”) can look brilliant on Friday and fail on any other day. So you develop on two <b>practice days</b> (Friday and Monday) with full feedback, and the contest is decided on a <b>hidden Wednesday</b> with other stores and volumes. You only learn its cost, never its routes, and you have three submissions, so you cannot tune on it. This is the heuristic-design version of the training / validation / test split from step 3, and it is how machine-learning competitions keep their leaderboards honest. Research systems use dozens of instances for the same reason.</p>
         <h4>3. Why a sandbox?</h4>
         <p>Never run AI-written code with access to your data or network. Here the code runs in a Web Worker without network access, gets only frozen copies of the data, and is stopped after a few seconds. In a company the same principle applies: AI-generated code is reviewed and tested before it touches production systems.</p>
         <h4>4. What a construction rule cannot do</h4>
@@ -223,7 +225,7 @@
       const danube = [[47.80, 19.00], [47.78, 19.13], [47.70, 19.08], [47.60, 19.06], [47.50, 19.05], [47.40, 19.03], [47.30, 18.95], [47.15, 18.97], [47.08, 18.93]];
       s += `<polyline points="${danube.map(([lat, lon]) => { const q = Pp({ lat, lon }); return q.x + "," + q.y; }).join(" ")}" fill="none" stroke="#7fb2d6" stroke-width="7" stroke-opacity=".45" stroke-linejoin="round" pointer-events="none"></polyline>`;
       const bp = Pp({ lat: 47.497, lon: 19.04 });
-      s += `<circle cx="${bp.x}" cy="${bp.y}" r="${13 * SC}" fill="var(--ink-3)" fill-opacity=".07" stroke="var(--ink-3)" stroke-dasharray="3 4" stroke-opacity=".4" pointer-events="none"></circle><text x="${bp.x}" y="${bp.y - 13 * SC - 4}" text-anchor="middle" font-size="9.5" style="fill:var(--ink-3)">Budapest</text>`;
+      s += `<circle cx="${bp.x}" cy="${bp.y}" r="${13 * SC}" fill="var(--ink-3)" fill-opacity=".07" stroke="var(--ink-3)" stroke-dasharray="3 4" stroke-opacity=".4" pointer-events="none"></circle>`;
       const where = {}, lateSet = new Set(o.late || []);
       (o.clusters ? o.clusters : rs).forEach((r, k) => {
         if (!r.length) return;
@@ -244,7 +246,7 @@
           ${w && !o.clusters ? `<text pointer-events="none" x="${q.x + 11}" y="${q.y - 9}" font-size="9" font-weight="800" style="fill:${c}" stroke="var(--panel)" stroke-width="2.5" paint-order="stroke">${w.k + 1}/${w.i + 1}</text>` : ""}
           <title>${esc(st.name)}: ${pal} pallets, window ${st.win[0]}–${st.win[1]}</title></g>`;
       }
-      s += `<rect x="${dep.x - 11}" y="${dep.y - 11}" width="22" height="22" rx="3" fill="var(--brand)" stroke="var(--accent)" stroke-width="2.5" pointer-events="none"></rect><text x="${dep.x + 14}" y="${dep.y + 18}" font-size="10" font-weight="800" pointer-events="none">Ecser DC</text>`;
+      s += `<rect x="${dep.x - 11}" y="${dep.y - 11}" width="22" height="22" rx="3" fill="var(--brand)" stroke="var(--accent)" stroke-width="2.5" pointer-events="none"></rect><text x="${dep.x}" y="${dep.y - 16}" text-anchor="middle" font-size="10" font-weight="800" pointer-events="none">Ecser DC</text>`;
       return s + "</svg>";
     }
     function routeCards(inst, e, rs, o) {
@@ -268,8 +270,17 @@
 
     /* ================= 2 · Own plan ================= */
     let routes = my.get("b_routes", [[]]), active = Math.min(my.get("b_active", 0), routes.length - 1), curE = null;
+    function restoreOwn() {
+      const r = LT.ui.serverResult("b_own");
+      if (!r || my.get("b_sub")) return false;
+      const rs = String(r.option || "").split("/").map(x => x.split(">").filter(id => I1.idx[id] !== undefined && id !== "DC")).filter(x => x.length);
+      if (!rs.length || !V.evaluate(I1, rs, "dispatcher").valid) return false;
+      my.put("b_sub", { routes: rs, cost: r.value });
+      return true;
+    }
     function renderOwn() {
       const locked = ownDone();
+      if (locked) restoreOwn();
       if (locked && my.get("b_sub")) routes = my.get("b_sub").routes.map(r => r.slice());
       if (!routes.length) routes = [[]];
       active = Math.max(0, Math.min(active, routes.length - 1));
@@ -281,7 +292,7 @@
         g.addEventListener("click", act);
         g.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); act(); } });
       });
-      $("#b-kpi", root).innerHTML = kpiRow(e, nnE, "vs. dispatcher") + `<small>Planned: ${I1.stores.length - e.missing.length}/${I1.stores.length} stores. Compared with the dispatcher's nearest-neighbour plan (${f.eur(nnE.cost)}).</small>`;
+      $("#b-kpi", root).innerHTML = kpiRow(e, e.valid ? nnE : null, "vs. dispatcher") + `<small>Planned: ${I1.stores.length - e.missing.length}/${I1.stores.length} stores. Compared with the dispatcher's nearest-neighbour plan (${f.eur(nnE.cost)}).</small>`;
       $("#b-routes", root).innerHTML = routeCards(I1, e, routes, { active: locked ? -1 : active });
       if (!locked) $$("#b-routes [data-k]", root).forEach(c => (c.onclick = () => { active = Number(c.dataset.k); renderOwn(); }));
       const bd = `Trucks ${f.eur(e.fixC)} + km ${f.eur(e.kmC)} + late ${f.eur(e.lateC)} + overtime ${f.eur(e.otC)}`;
@@ -300,11 +311,12 @@
         my.put("b_sub", { routes: routes.filter(r => r.length), cost: curE.cost });
         my.set("done_b_own", true);
         renderOwn();
-        await submit({ activity: "b_own", kind: "result", value: Math.round(curE.cost), dir: "min", text: `${curE.trucks} trucks, ${f.num(curE.km, 0)} km, ${curE.late} late (at 50 km/h)` }, "Plan submitted to the contest");
+        await submit({ activity: "b_own", kind: "result", value: Math.round(curE.cost), dir: "min", option: routes.filter(r => r.length).map(r => r.join(">")).join("/"), text: `${curE.trucks} trucks, ${f.num(curE.km, 0)} km, ${curE.late} late (at 50 km/h)` }, "Plan submitted to the contest");
       };
     }
     board($("#b-board", root), "b_own", { unit: "€/day", fmt: v => f.num(v), detail: true });
     renderOwn();
+    LT.api.onState(() => { if (ownDone() && !my.get("b_sub") && restoreOwn()) { renderOwn(); LT.ui.changed(); } });
     gate($("#b-own", root), [{ ok: voted("b_guess"), text: "Lock in your guess in step 1 first." }]);
 
     /* ================= 3 · Travel-time ML ================= */
@@ -319,7 +331,7 @@
       return s + `</svg><div class="legend"><span><i style="background:#c0453f;border-radius:50%"></i>departure 06:30–09:30</span><span><i style="background:#005f92;border-radius:50%"></i>other hours</span><span>x: urban share · y: minutes per km (trips ≥ 3 km)</span></div>`;
     };
     $("#b-log", root).innerHTML = `<div class="grid g2e"><div><table class="small-tbl"><thead><tr><th>#</th><th class="n">km</th><th class="n">Urban</th><th class="n">Departure</th><th class="n">Minutes</th><th>Set</th></tr></thead><tbody>
-      ${logRows.slice(0, 12).map(r => `<tr><td>${r.id}</td><td class="n">${f.num(r.km, 1)}</td><td class="n">${f.num(r.u, 2)}</td><td class="n">${f.clock(r.hour * 60)}</td><td class="n">${f.num(r.min, 1)}</td><td>${r.test ? "test" : "train"}</td></tr>`).join("")}
+      ${logRows.slice(0, 12).map(r => `<tr><td>${r.id}</td><td class="n">${f.num(r.km, 1)}</td><td class="n">${f.num(r.u, 2)}</td><td class="n">${f.clock(r.hour * 60)}</td><td class="n">${f.num(r.min, 1)}</td><td>${r.set}</td></tr>`).join("")}
       </tbody></table><small>First 12 of ${logRows.length} trips.</small></div><div>${scatter()}<small>Pace explodes when urban AND rush hour come together. Can a model see that?</small></div></div>`;
     const guessTT = vote($("#b-tt-guess", root), Object.assign({ mode: "guess" }, LT.ACT.b_tt, {
       explain: () => { const M = T.models(), te = T.test(); return `Test MAE: dispatcher ${f.num(T.mae(M.dispatcher, te), 1)} min, linear ${f.num(T.mae(M.linear, te), 1)} min, tree ${f.num(T.mae(M.tree, te), 1)} min per trip. The tree wins because it can learn the interaction of city traffic and rush hour.`; }
@@ -332,28 +344,78 @@
       return `${ind}if ${n.fname} ≤ ${thr}:\n${treeText(n.left, ind + "   ")}${ind}else:\n${treeText(n.right, ind + "   ")}`;
     }
     const sg = v => (v < 0 ? "−" : "+");
+    const TF = { u: "urban share", hour: "departure hour", km: "distance" };
+    const cfg = () => Object.assign({ feats: ["u", "hour", "km"], depth: T.DEFAULT_DEPTH, leaf: 12 }, my.get("b_cfg", {}));
+    const mlLocked = () => !!my.get("b_ml");
     function renderML() {
-      const M = T.models(), tr = T.train(), te = T.test();
-      const depth = Number(my.get("b_depth", T.DEFAULT_DEPTH));
-      const curves = [1, 2, 3, 4, 5, 6, 7, 8].map(d => { const m = T.fitTree(tr, d); return { d, tr: T.mae(m, tr), te: T.mae(m, te), leaves: m.leaves }; });
-      const tm = T.fitTree(tr, depth);
-      const rows = [["dispatcher", M.dispatcher], ["linear", M.linear], ["tree", M.tree]].map(([k, m]) => ({ k, tr: T.mae(m, tr), te: T.mae(m, te) }));
-      const win = rows.slice().sort((a, b) => a.te - b.te)[0].k;
+      const M = T.models(), tr = T.train(), va = T.val(), c = cfg();
+      const rows = [["dispatcher", M.dispatcher], ["linear", M.linear], ["tree", M.tree]].map(([k, m]) => ({ k, tr: T.mae(m, tr), va: T.mae(m, va) }));
       const b = M.linear.b;
       $("#b-ml-out", root).innerHTML = `
-        <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Model</th><th class="n">MAE train (min)</th><th class="n">MAE test (min)</th></tr></thead><tbody>
-          ${rows.map(r => `<tr ${r.k === win ? 'class="me"' : ""}><td>${esc(T.MODEL_NAMES[r.k])}</td><td class="n">${f.num(r.tr, 1)}</td><td class="n"><b>${f.num(r.te, 1)}</b></td></tr>`).join("")}
+        <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Model</th><th class="n">MAE training (min)</th><th class="n">MAE validation (min)</th></tr></thead><tbody>
+          ${rows.map(r => `<tr><td>${esc(T.MODEL_NAMES[r.k])}${r.k === "tree" ? ` <small>(the planner's default: depth ${T.DEFAULT_DEPTH}, all features)</small>` : ""}</td><td class="n">${f.num(r.tr, 1)}</td><td class="n"><b>${f.num(r.va, 1)}</b></td></tr>`).join("")}
         </tbody></table></div>
         <p><small>Linear model learned: minutes = ${f.num(b[0], 1)} ${sg(b[1])} ${f.num(Math.abs(b[1]), 2)}·km ${sg(b[2])} ${f.num(Math.abs(b[2]), 1)}·urban ${sg(b[3])} ${f.num(Math.abs(b[3]), 2)}·hour. It can only add effects, so it underestimates the city at 8:00 and overestimates it at noon.</small></p>
+        <h4>Your turn: tune your own tree</h4>
+        <p>Choose the features, the maximum depth and the smallest allowed leaf. The model is always fitted on the <b>training</b> trips; judge your settings on the <b>validation</b> trips. The <b>test</b> trips stay sealed until you lock in your model: they give the one honest number at the end.</p>
         <div class="grid g2e">
-          <div><b>Tree depth vs. error</b>${lines([{ name: "train MAE", color: "#a1772b", points: curves.map(c => ({ x: c.d, y: c.tr })) }, { name: "test MAE", color: "#005f92", points: curves.map(c => ({ x: c.d, y: c.te })) }], { yfmt: v => f.num(v, 1), title: "depth chart" })}
-            <div class="slider-row"><label for="b-depth">Show the tree with depth</label><output>${depth}</output><input type="range" id="b-depth" min="1" max="8" value="${depth}"></div>
-            <small>The planning tool uses depth ${T.DEFAULT_DEPTH}. Deeper trees fit the training trips better, but the test error stops improving: the extra splits learn noise.</small></div>
-          <div><b>The learned rules (depth ${depth}, ${tm.leaves} leaves)</b><div class="tree">${treeText(tm.tree)}</div></div>
+          <div>
+            <div class="btn-row" id="b-tf">${T.FEATS.map(x => `<label class="btn small"><input type="checkbox" value="${x.k}" style="margin:0 6px 0 0"> ${TF[x.k]}</label>`).join("")}</div>
+            <div class="slider-row"><label for="b-depth">Maximum depth</label><output id="b-depth-o">${c.depth}</output><input type="range" id="b-depth" min="1" max="10" value="${c.depth}"></div>
+            <div class="field" style="max-width:260px"><label for="b-leaf">Smallest leaf (trips)</label><select id="b-leaf">${[2, 5, 12, 30].map(v => `<option value="${v}" ${v === c.leaf ? "selected" : ""}>${v}</option>`).join("")}</select></div>
+            <div id="b-own-kpi"></div>
+            <div id="b-own-chart"></div>
+          </div>
+          <div><b>Your tree's rules</b><div class="tree" id="b-own-tree" style="max-height:420px"></div></div>
         </div>
+        <div class="btn-row"><button class="btn accent" id="b-ml-lock">Lock in my model and open the test set (final)</button></div>
+        <div id="b-test-out"></div>`;
+      const save = patch => { if (mlLocked()) return; my.put("b_cfg", Object.assign(cfg(), patch)); updateOwn(); };
+      $$("#b-tf input", root).forEach(cb => (cb.onchange = () => {
+        const v = $$("#b-tf input", root).filter(x => x.checked).map(x => x.value);
+        if (!v.length) { cb.checked = true; toast("Keep at least one feature.", "err"); return; }
+        save({ feats: v });
+      }));
+      $("#b-depth", root).oninput = e => { $("#b-depth-o", root).textContent = e.target.value; save({ depth: Number(e.target.value) }); };
+      $("#b-leaf", root).onchange = e => save({ leaf: Number(e.target.value) });
+      $("#b-ml-lock", root).onclick = () => {
+        if (mlLocked()) return;
+        if (!confirm("Lock in this model? The test set is opened once, and the settings cannot be changed afterwards.")) return;
+        my.put("b_cfg", cfg()); my.set("b_ml", true);
+        updateOwn(); renderTest();
+      };
+      updateOwn();
+      if (mlLocked()) renderTest();
+    }
+    function updateOwn() {
+      const c = cfg(), tr = T.train(), va = T.val(), locked = mlLocked();
+      const m = T.fitTree(tr, c.depth, c.leaf, c.feats), def = T.models().tree;
+      const curves = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(d => { const x = T.fitTree(tr, d, c.leaf, c.feats); return { d, tr: T.mae(x, tr), va: T.mae(x, va) }; });
+      const bestD = curves.slice().sort((a, b) => a.va - b.va)[0].d;
+      $$("#b-tf input", root).forEach(cb => { cb.checked = c.feats.includes(cb.value); cb.disabled = locked; });
+      $("#b-depth", root).disabled = locked; $("#b-leaf", root).disabled = locked; $("#b-ml-lock", root).disabled = locked;
+      const mv = T.mae(m, va), mt = T.mae(m, tr);
+      $("#b-own-kpi", root).innerHTML = `<div class="kpis">${kpi("Training MAE", f.num(mt, 2) + " min")}${kpi("Validation MAE", f.num(mv, 2) + " min", 100 * (mv / T.mae(def, va) - 1), true, "%", "vs. default tree")}${kpi("Leaves", m.leaves)}</div>
+        ${mv > 1.6 * mt && mt < 3 ? `<div class="note warn"><b>Large gap between training and validation:</b> the tree is memorising individual trips (overfitting).</div>` : ""}`;
+      $("#b-own-chart", root).innerHTML = `<b>Depth vs. error with your features and leaf size</b>${lines([{ name: "training MAE", color: "#a1772b", points: curves.map(x => ({ x: x.d, y: x.tr })) }, { name: "validation MAE", color: "#005f92", points: curves.map(x => ({ x: x.d, y: x.va })) }], { y0: 0, yfmt: v => f.num(v, 1), vline: c.depth, title: "depth chart" })}
+        <small>The dashed line is your depth. With these settings the validation error is lowest at depth ${bestD}. Training error keeps falling with depth; validation error tells you when to stop.</small>`;
+      $("#b-own-tree", root).innerHTML = treeText(m.tree);
+    }
+    function renderTest() {
+      const M = T.models(), te = T.test(), va = T.val(), c = cfg();
+      const own = T.fitTree(T.train(), c.depth, c.leaf, c.feats);
+      const rows = [["dispatcher", M.dispatcher], ["linear", M.linear], ["tree", M.tree]].map(([k, m]) => ({ k, n: T.MODEL_NAMES[k], va: T.mae(m, va), te: T.mae(m, te) }));
+      const win = rows.slice().sort((a, b) => a.te - b.te)[0].k;
+      const ov = T.mae(own, va), ot = T.mae(own, te);
+      $("#b-test-out", root).innerHTML = `<h4>The sealed test set (${te.length} trips nobody tuned on)</h4>
+        <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Model</th><th class="n">MAE validation</th><th class="n">MAE test</th></tr></thead><tbody>
+        ${rows.map(r => `<tr><td>${esc(r.n)}</td><td class="n">${f.num(r.va, 2)}</td><td class="n"><b>${f.num(r.te, 2)}</b></td></tr>`).join("")}
+        <tr class="me"><td><b>Your tree:</b> ${esc(c.feats.map(k => TF[k]).join(" + "))}, depth ${c.depth}, leaf ≥ ${c.leaf}</td><td class="n">${f.num(ov, 2)}</td><td class="n"><b>${f.num(ot, 2)}</b></td></tr>
+        </tbody></table></div>
+        <div class="note ${ot < rows[2].te - 0.05 ? "ok" : "info"}">${ot < rows[2].te - 0.05 ? `<b>Your tree beats the planner's default on the test set</b> (${f.num(ot, 2)} vs. ${f.num(rows[2].te, 2)} min).` : `<b>The planner's default tree is at least as good on the test set</b> (${f.num(rows[2].te, 2)} vs. your ${f.num(ot, 2)} min).`} ${ot > ov + 0.15 ? "Notice that your test error is higher than your validation error: you chose the settings on the validation trips, so that number was a little optimistic. This is why a third, untouched set is needed." : ""}</div>
+        <small>So that everybody plans and competes with the same travel times, the planning steps below use the default tree (depth ${T.DEFAULT_DEPTH}, all features).</small>
         <h4>Reality check: your submitted plan, re-timed with the ML model</h4>
         <div id="b-recheck"></div>`;
-      $("#b-depth", root).oninput = e => { my.put("b_depth", Number(e.target.value)); renderML(); };
       const sub = my.get("b_sub");
       if (sub) {
         const e0 = V.evaluate(I1, sub.routes, "dispatcher"), e1 = V.evaluate(I1, sub.routes, "tree");
@@ -368,8 +430,9 @@
       }
       guessTT.reveal(win);
     }
-    $("#b-ml-run", root).onclick = () => { my.set("b_ml", true); renderML(); };
-    if (my.get("b_ml")) renderML();
+    $("#b-ml-run", root).onclick = () => { my.set("b_ml_run", true); renderML(); };
+    if (my.get("b_ml_run") || my.get("b_ml")) renderML();
+
 
     /* ================= 4 · Clustering ================= */
     function renderCl() {
@@ -389,7 +452,7 @@
     }
     $("#b-cl-run", root).onclick = () => { my.set("b_cl", true); renderCl(); };
     vote($("#b-cq", root), Object.assign({ mode: "quiz" }, LT.ACT.b_cq));
-    gate($("#b-cl", root), [{ ok: () => !!my.get("b_ml"), text: "Train the travel-time models in step 3 first." }]);
+    gate($("#b-cl", root), [{ ok: () => !!my.get("b_ml"), text: "Train, tune and lock in your travel-time model in step 3 first." }]);
     if (my.get("b_cl")) renderCl();
 
     /* ================= 5 · Heuristics ================= */
@@ -412,16 +475,18 @@
       guessB.reveal(String(Math.min(best.m.trucks, 6)));
     }
     $("#b-heu-run", root).onclick = () => { my.set("b_heu", true); renderHeu(); };
-    gate($("#b-heu", root), [{ ok: () => !!my.get("b_ml"), text: "Train the travel-time models in step 3 first." }]);
+    gate($("#b-heu", root), [{ ok: () => !!my.get("b_ml"), text: "Train, tune and lock in your travel-time model in step 3 first." }]);
     if (my.get("b_heu")) renderHeu();
 
     /* ================= 6 · AI-written heuristic ================= */
-    const plain = { d1: V.plain(I1, "tree"), d2: V.plain(I2, "tree") };
+    const I3 = V.instance("d3");
+    const plain = { d1: V.plain(I1, "tree"), d2: V.plain(I2, "tree"), d3: V.plain(I3, "tree") };
+    const MAX_SUBS = 3;
     const ref = (() => {
       const c = getCw();
       const nnr = { d1: V.evaluate(I1, V.nearest(I1), "tree").cost, d2: V.evaluate(I2, V.nearest(I2), "tree").cost };
       const cwr = { d1: V.evaluate(I1, c.tree, "tree").cost, d2: V.evaluate(I2, c.tree2, "tree").cost };
-      return { nn: nnr.d1 + nnr.d2, cw: cwr.d1 + cwr.d2, nnr, cwr };
+      return { nn: nnr.d1 + nnr.d2, cw: cwr.d1 + cwr.d2, nnr, cwr, nn3: V.evaluate(I3, V.nearest(I3), "tree").cost, cw3: V.evaluate(I3, V.improve(I3, V.savings(I3, "tree"), "tree"), "tree").cost };
     })();
     const codeEl = $("#b-code", root);
     codeEl.value = my.get("b_code", V.RULES.nearest);
@@ -451,7 +516,7 @@ s (the state), read-only:
   s.shiftEnd         ${VP.shiftEnd} (14:30): returning later costs overtime
 
 COST TO MINIMISE (per day): ${VP.fixDay} EUR per truck used + ${VP.perKm} EUR per km + ${VP.latePenalty} EUR per store reached after its window closes + ${VP.overtime} EUR per hour of overtime after 14:30.
-TYPICAL DAY: about 19 stores and 50 pallets around Budapest. Inner-city stores (urban close to 1) have windows ending 09:30 and are slow to reach in the morning rush; suburban stores have windows ending 11:00-13:00. Your function will be tested on two different days, so do not hard-code store IDs.
+TYPICAL DAY: about 19 stores and 50 pallets around Budapest. Inner-city stores (urban close to 1) have windows ending 09:30 and are slow to reach in the morning rush; suburban stores have windows ending 11:00-13:00. Your function will be tested on several different days, including one you will get no feedback about, so do not hard-code store IDs or tune to one map.
 
 RULES FOR THE CODE: one pure function named score with the signature function score(c, s) { ... }; no global variables, no state between calls, no external calls, plain JavaScript (ES2017). Return a number.
 ANSWER FORMAT: the code in one \`\`\`javascript block, then at most 5 bullet points explaining the idea.`;
@@ -493,11 +558,12 @@ ANSWER FORMAT: the code in one \`\`\`javascript block, then at most 5 bullet poi
       try { code = PR.code(codeEl.value); } catch (e) { $("#b-run-out", root).innerHTML = `<div class="note bad"><b>${esc(e.message)}</b></div>`; return; }
       $("#b-run-out", root).innerHTML = `<div class="note info">Running in the sandbox…</div>`;
       const r = await runSandbox(code);
+      if (r.ok && !(r.out && ["d1", "d2", "d3"].every(k => r.out[k] && Array.isArray(r.out[k].routes)))) { r.ok = false; r.error = "the sandbox returned no routes (the code must not send messages itself)"; }
       if (!r.ok) { $("#b-run-out", root).innerHTML = `<div class="note bad"><b>The code failed:</b> ${esc(r.error)}</div>`; lastRun = { code, error: r.error }; return; }
       const e1 = V.evaluate(I1, r.out.d1.routes, "tree"), e2 = V.evaluate(I2, r.out.d2.routes, "tree");
       const total = e1.cost + e2.cost;
       const warn = [].concat(r.out.d1.warnings, r.out.d2.warnings);
-      lastRun = { code, e1, e2, total, r1: r.out.d1.routes, r2: r.out.d2.routes, warn };
+      lastRun = { code, e1, e2, e3: V.evaluate(I3, r.out.d3.routes, "tree"), total, r1: r.out.d1.routes, r2: r.out.d2.routes, warn };
       const hist = my.get("b_hist", []);
       hist.push({ t: Date.now(), total: Math.round(total), d1: Math.round(e1.cost), d2: Math.round(e2.cost) });
       my.put("b_hist", hist.slice(-20));
@@ -507,17 +573,25 @@ ANSWER FORMAT: the code in one \`\`\`javascript block, then at most 5 bullet poi
         ${warn.length ? `<div class="note warn">${esc(warn[0])}</div>` : ""}
         <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>Day</th><th class="n">Trucks</th><th class="n">km</th><th class="n">Late</th><th class="n">Overtime min</th><th class="n">Your heuristic</th><th class="n">Nearest neighbour</th><th class="n">Clarke–Wright + LS</th></tr></thead><tbody>
           ${dayRow("Friday", e1, ref.nnr.d1, ref.cwr.d1)}${dayRow("Monday", e2, ref.nnr.d2, ref.cwr.d2)}
-          <tr class="me"><td><b>Total (contest value)</b></td><td></td><td></td><td></td><td></td><td class="n"><b>${f.eur(total)}</b></td><td class="n">${f.eur(ref.nn)}</td><td class="n">${f.eur(ref.cw)}</td></tr>
+          <tr class="me"><td><b>Total of the two practice days</b></td><td></td><td></td><td></td><td></td><td class="n"><b>${f.eur(total)}</b></td><td class="n">${f.eur(ref.nn)}</td><td class="n">${f.eur(ref.cw)}</td></tr>
         </tbody></table></div>
-        <div class="note ${total < ref.nn ? "ok" : "warn"}"><b>${total < ref.cw ? "Remarkable: your construction rule beats Clarke–Wright with local search!" : total < ref.nn ? `Better than nearest neighbour by ${f.eur(ref.nn - total)} over two days.` : "Not better than nearest neighbour yet."}</b> Evaluated with the ML travel-time model.</div>
+        <div class="note ${total < ref.nn ? "ok" : "warn"}"><b>${total < ref.cw ? "Remarkable: your construction rule beats Clarke–Wright with local search!" : total < ref.nn ? `Better than nearest neighbour by ${f.eur(ref.nn - total)} on the two practice days.` : "Not better than nearest neighbour yet."}</b> Evaluated with the ML travel-time model.</div>
         <div class="grid g2e"><div><b>Friday</b><div class="map-wrap">${mapSvg(I1, r.out.d1.routes, { late: e1.details.flatMap(d => d.stops.filter(s => s.late).map(s => s.id)) })}</div></div>
           <div><b>Monday</b><div class="map-wrap">${mapSvg(I2, r.out.d2.routes, { late: e2.details.flatMap(d => d.stops.filter(s => s.late).map(s => s.id)) })}</div></div></div>
         <small>Red ring = late store. The engine called your function ${f.num(r.out.d1.calls + r.out.d2.calls)} times.</small>
-        <div class="btn-row"><button class="btn accent" id="b-submit">Submit this version to the contest</button><button class="btn ai" id="b-p2">Copy feedback prompt (next round)</button></div>`;
+        <div class="btn-row"><button class="btn accent" id="b-submit" ${my.get("b_subs", []).length >= MAX_SUBS ? "disabled" : ""}>Submit this version to the contest (${Math.max(0, MAX_SUBS - my.get("b_subs", []).length)} of ${MAX_SUBS} left)</button><button class="btn ai" id="b-p2">Copy feedback prompt (next round)</button></div>`;
       $("#b-submit", root).onclick = async () => {
         if (!lastRun || !lastRun.e1) return;
-        my.set("done_b_heur", true);
-        await submit({ activity: "b_heur", kind: "result", value: Math.round(lastRun.total), dir: "min", text: lastRun.code.slice(0, 5500) }, `Submitted: ${f.eur(lastRun.total)} (your best counts)`);
+        const subs = my.get("b_subs", []);
+        if (subs.length >= MAX_SUBS) { toast("You have used all your contest submissions.", "err"); return; }
+        if (!lastRun.e3.valid) { toast("This version does not produce a valid plan on the hidden day.", "err"); return; }
+        if (subs.some(x => x.code === lastRun.code)) { toast("You have already submitted exactly this code.", "err"); return; }
+        if (!confirm(`Use submission ${subs.length + 1} of ${MAX_SUBS}? The rule is run on the hidden Wednesday and only its cost is shown.`)) return;
+        subs.push({ vis: Math.round(lastRun.total), hid: Math.round(lastRun.e3.cost), late: lastRun.e3.late, trucks: lastRun.e3.trucks, code: lastRun.code });
+        my.put("b_subs", subs); my.set("done_b_heur", true);
+        const btn = $("#b-submit", root); if (btn) { btn.disabled = true; btn.textContent = `Submitted (${Math.max(0, MAX_SUBS - subs.length)} of ${MAX_SUBS} left)`; }
+        renderSubs();
+        await submit({ activity: "b_heur", kind: "result", value: Math.round(lastRun.e3.cost), dir: "min", text: lastRun.code.slice(0, 5500) }, `Hidden day: ${f.eur(lastRun.e3.cost)} (your best submission counts)`);
       };
       $("#b-p2", root).onclick = async () => {
         const det = (e, n) => `${n}: cost ${Math.round(e.cost)} EUR = ${e.trucks} trucks, ${Math.round(e.km)} km, ${e.late} late stores, ${Math.round(e.otMin)} overtime minutes\n` +
@@ -525,7 +599,7 @@ ANSWER FORMAT: the code in one \`\`\`javascript block, then at most 5 bullet poi
         const txt = `Your scoring function was tested in the engine. Results (travel times from the ML model):
 ${det(lastRun.e1, "Friday")}
 ${det(lastRun.e2, "Monday")}
-Total over two days: ${Math.round(lastRun.total)} EUR. For comparison: nearest neighbour (return c.km) ${Math.round(ref.nn)} EUR; Clarke-Wright savings with local search ${Math.round(ref.cw)} EUR.
+Total over these two days: ${Math.round(lastRun.total)} EUR. For comparison: nearest neighbour (return c.km) ${Math.round(ref.nn)} EUR; Clarke-Wright savings with local search ${Math.round(ref.cw)} EUR.
 
 Your code:
 \`\`\`javascript
@@ -537,12 +611,22 @@ Analyse what goes wrong (late stores, wasted kilometres, extra trucks, overtime)
       };
       renderHist();
     }
+    function renderSubs() {
+      const subs = my.get("b_subs", []);
+      $("#b-subs", root).innerHTML = !subs.length ? "" : `<h4>Your contest submissions (${subs.length} of ${MAX_SUBS})</h4>
+        <div class="tbl-wrap"><table class="small-tbl"><thead><tr><th>#</th><th class="n">Practice days (Fri + Mon)</th><th class="n">Hidden Wednesday</th><th class="n">Trucks</th><th class="n">Late</th></tr></thead><tbody>
+        ${subs.map((x, i) => `<tr><td>${i + 1}</td><td class="n">${f.eur(x.vis)}</td><td class="n"><b>${f.eur(x.hid)}</b></td><td class="n">${x.trucks}</td><td class="n">${x.late}</td></tr>`).join("")}
+        <tr><td colspan="2">Nearest neighbour on the hidden day</td><td class="n">${f.eur(ref.nn3)}</td><td></td><td></td></tr>
+        <tr><td colspan="2">Clarke–Wright + local search on the hidden day</td><td class="n">${f.eur(ref.cw3)}</td><td></td><td></td></tr>
+        </tbody></table></div>
+        <small>Compare the two columns: a version that is much better on the practice days but not on the hidden day was tuned to the practice maps (overfitting), not to the problem.</small>`;
+    }
     function renderHist() {
       const h = my.get("b_hist", []);
       if (h.length < 2) { $("#b-hist", root).innerHTML = ""; return; }
-      $("#b-hist", root).innerHTML = `<b>Your runs</b> (two-day cost, lower is better)${lines([{ name: "your runs", color: "#005f92", points: h.map((x, i) => ({ x: i + 1, y: x.total })) }, { name: "nearest neighbour", color: "#888888", dash: "4 4", dots: false, points: [{ x: 1, y: ref.nn }, { x: h.length, y: ref.nn }] }, { name: "Clarke–Wright + LS", color: "#007548", dash: "4 4", dots: false, points: [{ x: 1, y: ref.cw }, { x: h.length, y: ref.cw }] }], { yfmt: v => f.num(v), title: "run history" })}`;
+      $("#b-hist", root).innerHTML = `<b>Your runs</b> (cost of the two practice days, lower is better)${lines([{ name: "your runs", color: "#005f92", points: h.map((x, i) => ({ x: i + 1, y: x.total })) }, { name: "nearest neighbour", color: "#888888", dash: "4 4", dots: false, points: [{ x: 1, y: ref.nn }, { x: h.length, y: ref.nn }] }, { name: "Clarke–Wright + LS", color: "#007548", dash: "4 4", dots: false, points: [{ x: 1, y: ref.cw }, { x: h.length, y: ref.cw }] }], { yfmt: v => f.num(v), title: "run history" })}`;
     }
-    renderHist();
+    renderHist(); renderSubs();
     $("#b-run", root).onclick = run;
     board($("#b-heur-board", root), "b_heur", { unit: "€/2 days", fmt: v => f.num(v) });
     textBox($("#b-ai-refl", root), Object.assign({}, LT.ACT.b_ai, { points: 4, placeholder: "I used … The key idea was … It failed when … I would / would not trust it because …", button: "Submit judgement", minWords: 35, okMsg: "Judgement submitted: +4 points", option: () => { const h = my.get("b_hist", []); return h.length ? `${h.length} runs, best ${f.eur(Math.min(...h.map(x => x.total)))}` : ""; } }));

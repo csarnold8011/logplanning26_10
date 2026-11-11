@@ -68,7 +68,8 @@
   const F = {};
   F.FEATURES = ["housing", "jobs", "detached"];
   // Fit all three models on the years up to index T (inclusive). h = years ahead of YEARS[T].
-  F.fit = function (T) {
+  F.fit = function (T, feats) {
+    feats = feats && feats.length ? feats : F.FEATURES;
     const yrs = D.YEARS.slice(0, T + 1);
     const trend = D.CUSTOMERS.map(c => {
       const y = c.hist.slice(0, T + 1).map(Math.log);
@@ -76,9 +77,9 @@
       return { a, b };
     });
     // Pooled ML model: learn the growth rate from the drivers, across all customers
-    const beta = ols(D.CUSTOMERS.map(c => [1, c.housing, c.jobs, c.detached]), trend.map(t => t.b));
+    const beta = ols(D.CUSTOMERS.map(c => [1].concat(feats.map(k => c[k]))), trend.map(t => t.b));
     const pred = D.CUSTOMERS.map((c, i) => {
-      const g = beta[0] + beta[1] * c.housing + beta[2] * c.jobs + beta[3] * c.detached;
+      const g = feats.reduce((s, k, q) => s + beta[q + 1] * c[k], beta[0]);
       const y = c.hist.slice(0, T + 1).map(Math.log);
       const anchor = y.reduce((s, v, k) => s + v - g * (yrs[k] - yrs[T]), 0) / y.length;
       return {
@@ -88,7 +89,7 @@
         pooled: h => Math.exp(anchor + g * h)
       };
     });
-    return { T, beta, pred };
+    return { T, beta, feats, pred };
   };
   F.MODELS = [
     { id: "naive", name: "Naive", desc: "next years = last year" },
@@ -96,8 +97,8 @@
     { id: "pooled", name: "Pooled regression (ML)", desc: "learns the growth rate from the demand drivers, across all customers" }
   ];
   // Backtest: train on 2020-2023, forecast 2024 (h=1) and 2025 (h=2), measure WAPE
-  F.backtest = function () {
-    const m = F.fit(3), res = {}, rows = [];
+  F.backtest = function (feats) {
+    const m = F.fit(3, feats), res = {}, rows = [];
     F.MODELS.forEach(x => (res[x.id] = { err: 0, bias: 0 }));
     let tot = 0;
     D.CUSTOMERS.forEach((c, i) => {
@@ -113,14 +114,17 @@
     return { res, rows, winner, beta: m.beta };
   };
   // Demand map for the network model
-  F.demand = function (basis) {
+  F.demand = function (basis, feats) {
     const out = {};
     if (!basis || basis === "actual2025") { D.CUSTOMERS.forEach(c => (out[c.id] = c.hist[5])); return out; }
     const model = basis.replace(/\d+$/, ""), h = D.NET.planYear - D.YEARS[5];
-    const m = F.fit(5);
+    const m = F.fit(5, feats);
     D.CUSTOMERS.forEach((c, i) => (out[c.id] = Math.round(m.pred[i][model](h))));
     return out;
   };
+  // What the plan year really brings (the hidden data-generating process, shown only in the reveal step)
+  F.truth = function () { const out = {}; D.CUSTOMERS.forEach(c => (out[c.id] = c.true30)); return out; };
+  F.wape = function (fc, actual) { let e = 0, t = 0; Object.keys(actual).forEach(k => { e += Math.abs(fc[k] - actual[k]); t += actual[k]; }); return 100 * e / t; };
   F.total = d => Object.values(d).reduce((s, v) => s + v, 0);
 
   /* ================= H: network design (mixed-integer linear program) ================= */
@@ -289,14 +293,17 @@
         const km = Math.round(10 * Math.max(1.5, Math.exp(Math.log(4) + rng() * Math.log(18)) * (1.15 - 0.6 * u))) / 10;
         const hour = Math.round(10 * (5.75 + rng() * 9)) / 10;
         const min = Math.max(2, T.truth(km, u, hour) * (1 + TR.noise * gaussian(rng)));
-        rows.push({ id: i + 1, km, u: Math.round(100 * u) / 100, hour, min: Math.round(10 * min) / 10, test: rng() < 0.3 });
+        rows.push({ id: i + 1, km, u: Math.round(100 * u) / 100, hour, min: Math.round(10 * min) / 10, set: (s => (s < 0.6 ? "train" : s < 0.8 ? "val" : "test"))(rng()) });
       }
       cache = rows;
       return rows;
     };
   })();
-  T.train = () => T.log().filter(r => !r.test);
-  T.test = () => T.log().filter(r => r.test);
+  // 60% training (fit the model), 20% validation (choose the settings), 20% test (final, untouched check)
+  T.train = () => T.log().filter(r => r.set === "train");
+  T.val = () => T.log().filter(r => r.set === "val");
+  T.test = () => T.log().filter(r => r.set === "test");
+  T.FEATS = [{ k: "u", name: "urban share" }, { k: "hour", name: "departure hour" }, { k: "km", name: "distance (km)" }];
   // Model 1: multiple linear regression on the raw features: minutes = b0 + b1·km + b2·urban + b3·hour
   T.fitLinear = function (rows) {
     const X = rows.map(r => [1, r.km, r.u, r.hour]);
@@ -304,9 +311,9 @@
     return { b, predict: (km, u, hour) => Math.max(1, b[0] + b[1] * km + b[2] * u + b[3] * hour) };
   };
   // Model 2: regression tree (CART) on pace = minutes per km; prediction = pace × km
-  T.fitTree = function (rows, depth, minLeaf) {
+  T.fitTree = function (rows, depth, minLeaf, keys) {
     minLeaf = minLeaf || 12;
-    const feats = [{ k: "u", name: "urban share" }, { k: "hour", name: "departure hour" }, { k: "km", name: "distance (km)" }];
+    const feats = T.FEATS.filter(x => !keys || keys.includes(x.k));
     const data = rows.map(r => ({ u: r.u, hour: r.hour, km: r.km, y: r.min / r.km }));
     let leaves = 0;
     function build(set, d) {

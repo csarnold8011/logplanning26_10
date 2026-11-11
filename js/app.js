@@ -94,7 +94,7 @@
   /* ---------------- Desk (start page) ---------------- */
   const TASKS = {
     a: { n: 1, title: "Session A · Network design", q: "How many DCs should Kestrel run in 2030, and where?", method: "Forecasting ML · k-means · MILP · LLM as modeller",
-      steps: [["Guess", "a_guess", "v"], ["Own", "a_own"], ["Forecast", "a_fc", "v"], ["k-means", "a_kq", "v"], ["AI", "a_ai"], ["Memo", "a_dec"]] },
+      steps: [["Guess", "a_guess", "v"], ["Own", "a_own"], ["Forecast", "a_fcsel", "v"], ["k-means", "a_kq", "v"], ["AI", "a_ai"], ["Memo", "a_dec"]] },
     b: { n: 2, title: "Session B · Vehicle routing", q: "Which truck goes where on Friday morning?", method: "Travel-time ML · clustering · heuristics · AI-written code",
       steps: [["Guess", "b_guess", "v"], ["Own", "b_own"], ["ML", "b_tt", "v"], ["Cluster", "b_cq", "v"], ["AI code", "b_heur"], ["Memo", "b_dec"]] }
   };
@@ -137,7 +137,7 @@
         <p>You can use the university <b>Copilot</b>, or <b>Gemini</b>, <b>Claude</b> or <b>ChatGPT</b>; the buttons open them in a new tab. Kestrel and all its data are <b>fictional</b>, so pasting them is fine. Never paste real company or personal data.</p>
         <div class="prompt-magy">
           <div class="pm-sor"><span class="pm-resz">Session A</span><span><b>LLM as a modeller.</b> Language models are poor at optimisation arithmetic, but good at turning a messy business text into a precise specification. The AI translates the CEO's memo into a JSON constraint specification; the page validates it against a schema, passes it to a real MILP solver and checks every field. This is the pattern behind “function calling” and “tool use”.</span></div>
-          <div class="pm-sor"><span class="pm-resz">Session B</span><span><b>LLM as a programmer.</b> The AI writes a routing heuristic as JavaScript code. Your browser runs it in a sandbox on two delivery days, scores it, and you send the results back to the AI to improve the code. This is a small version of “LLM-driven algorithm discovery” (research systems such as FunSearch or Evolution of Heuristics work like this at scale).</span></div>
+          <div class="pm-sor"><span class="pm-resz">Session B</span><span><b>LLM as a programmer.</b> The AI writes a routing heuristic as JavaScript code. Your browser runs it in a sandbox on two practice days, scores it, and you send the results back to the AI to improve the code. This is a small version of “LLM-driven algorithm discovery” (research systems such as FunSearch or Evolution of Heuristics work like this at scale).</span></div>
         </div>
         <p>In both cases the AI output is an <b>input to be verified</b>, never the decision. The points go to your checking and your judgement.</p>
       </div></details>
@@ -176,7 +176,7 @@
     }).join("");
   }
   const f = () => LT.core.fmt;
-  const BOARDS = [["a_own", "€k/yr", v => f().num(v, 1)], ["b_own", "€/day", v => f().num(v)], ["b_heur", "€/2 days", v => f().num(v)]];
+  const BOARDS = [["a_own", "€k/yr", v => f().num(v, 1)], ["b_own", "€/day", v => f().num(v)], ["b_heur", "€ hidden day", v => f().num(v)]];
   function leaderboard(root) {
     root.innerHTML = `
       <div class="mission-head mh-0"><div class="eyebrow">Live leaderboard</div><h2>Who is leading?</h2>
@@ -192,7 +192,7 @@
   /* ---------------- Instructor projector ---------------- */
   function teacher(root) {
     const link = location.origin + location.pathname + "?s=" + encodeURIComponent(LT.api.session);
-    const voteIds = Object.keys(LT.ACT).filter(id => ["guess", "quiz"].includes(LT.ACT[id].type));
+    const voteIds = Object.keys(LT.ACT).filter(id => ["guess", "quiz", "opinion"].includes(LT.ACT[id].type));
     root.innerHTML = `
       <div class="grid g2">
         <div class="card big-lb"><h2>Leaderboard</h2><div id="tlb"></div></div>
@@ -251,13 +251,13 @@
         const max = Math.max(1, ...Object.values(c));
         body.innerHTML = `<h2>${esc(a.title)}</h2><p style="font-size:1.15rem">${a.question}</p><div class="bars">${a.options.map(o =>
           `<div class="bar ${a.right === o.id ? "right" : ""}"><span style="font-size:1.05rem">${o.label}</span><div class="track" style="height:28px"><div class="fill" style="width:${100 * (c[o.id] || 0) / max}%"></div></div><span class="cnt" style="font-size:1.1rem">${c[o.id] || 0}</span></div>`).join("")}</div>
-          ${a.type === "quiz" ? `<details><summary>Right answer and explanation</summary><p>${a.explain}</p></details>` : `<small>Students see the right answer on their own screen after the calculation.</small>`}`;
+          ${a.type === "quiz" ? `<details><summary>Right answer and explanation</summary><p>${a.explain}</p></details>` : a.type === "opinion" ? `<small>No right answer here: the consequences appear in the fast-forward step.</small>` : `<small>Students see the right answer on their own screen after the calculation.</small>`}`;
       } else if (cur === "ai") {
         body.innerHTML = `<div class="grid g2e">${textList(st, ["a_ai", "b_ai"]).map(p => `<div class="routes">${p}</div>`).join("")}</div>`;
       } else if (cur === "code") {
         const list = (st.results && st.results.b_heur) || [];
-        body.innerHTML = `<h2>AI-designed heuristics</h2><p>The best code of every participant (lower cost is better). Open one to discuss it with the class.</p>` + (list.length ? list.map(r =>
-          `<details class="mini"><summary><b>#${r.rank} ${esc(r.team)}</b> · ${f().eur(r.value)} for two days</summary><pre class="prompt-box">${esc(r.text)}</pre></details>`).join("") : "<small>No submissions yet.</small>");
+        body.innerHTML = `<h2>AI-designed heuristics</h2><p>The best submission of every participant, ranked by its cost on the hidden test day (lower is better). Open one to discuss it with the class.</p>` + (list.length ? list.map(r =>
+          `<details class="mini"><summary><b>#${r.rank} ${esc(r.team)}</b> · ${f().eur(r.value)} on the hidden day</summary><pre class="prompt-box">${esc(r.text)}</pre></details>`).join("") : "<small>No submissions yet.</small>");
       } else if (cur === "dec") {
         body.innerHTML = `<div class="grid g2e">${textList(st, ["a_dec", "b_dec"]).map(p => `<div class="routes">${p}</div>`).join("")}</div>`;
       }

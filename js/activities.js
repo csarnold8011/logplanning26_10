@@ -18,6 +18,16 @@
         { id: "pooled", label: "Pooled regression (ML)", sub: "growth learned from demand drivers across all customers" }
       ]
     },
+    a_fcsel: {
+      m: 1, type: "opinion", title: "Which forecast do you sign off?",
+      question: "Which forecast would you sign off as the basis of a 10-year network decision?",
+      options: [
+        { id: "naive", label: "Naive", sub: "2030 = 2025" },
+        { id: "trend", label: "Per-customer trend" },
+        { id: "pooled", label: "Pooled regression", sub: "all three drivers" },
+        { id: "own", label: "My own pooled model", sub: "the drivers I ticked above" }
+      ]
+    },
     a_shift: {
       m: 1, type: "guess", points: 5, title: "Guess: does 2030 change the network?",
       question: "If we design for the 2030 forecast instead of 2025 actuals, what happens to the optimal network?",
@@ -56,7 +66,7 @@
       right: "cap",
       explain: "k-means only looks at locations, not at pallets or time windows. A dense cluster can easily exceed the 14-pallet capacity, so a repair step has to move stores between clusters, and the time windows are still ignored."
     },
-    b_heur: { m: 2, type: "contest", title: "AI heuristic contest (Friday + Monday)", unit: "€ / 2 days", dir: "min" },
+    b_heur: { m: 2, type: "contest", title: "AI heuristic contest (hidden test day)", unit: "€ on the hidden day", dir: "min" },
     b_ai: { m: 2, type: "ai", title: "AI-designed heuristic: my judgement" },
     b_dec: { m: 2, type: "decision", points: 2, title: "My routing recommendation" }
   };

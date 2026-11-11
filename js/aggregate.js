@@ -15,7 +15,7 @@ function ltAggregate(events) {
     var key = e.team + "|" + e.activity;
     var ts = Number(e.ts) || 0;
     if (e.kind === "vote") {
-      if (!lastVote[key] || ts >= lastVote[key].ts) lastVote[key] = { ts: ts, e: e };
+      if (!lastVote[key] || ts < lastVote[key].ts) lastVote[key] = { ts: ts, e: e }; // the first vote counts
     } else if (e.kind === "result") {
       var v = Number(e.value);
       if (isNaN(v)) return;
@@ -27,7 +27,7 @@ function ltAggregate(events) {
     } else if (e.kind === "peer") {
       if (e.option && e.option !== e.team && (!lastPeer[key] || ts >= lastPeer[key].ts)) lastPeer[key] = { ts: ts, e: e };
     } else if (e.kind === "bonus") {
-      if (!lastBonus[key] || ts >= lastBonus[key].ts) lastBonus[key] = { ts: ts, e: e };
+      if (!lastBonus[key] || ts < lastBonus[key].ts) lastBonus[key] = { ts: ts, e: e }; // the first evaluation counts
     }
   });
 
@@ -40,9 +40,11 @@ function ltAggregate(events) {
     detail[team][activity] = (detail[team][activity] || 0) + p;
   }
 
-  var votes = {};
+  var votes = {}, voted = {};
   Object.keys(lastVote).forEach(function (k) {
     var e = lastVote[k].e;
+    voted[e.team] = voted[e.team] || {};
+    voted[e.team][e.activity] = String(e.option || "");
     votes[e.activity] = votes[e.activity] || {};
     String(e.option || "").split("|").forEach(function (o) {
       if (!o) return;
@@ -55,7 +57,7 @@ function ltAggregate(events) {
   Object.keys(bestResult).forEach(function (k) {
     var r = bestResult[k], e = r.e;
     results[e.activity] = results[e.activity] || [];
-    results[e.activity].push({ team: e.team, value: r.value, text: e.text || "", dir: e.dir || "min", ts: r.ts });
+    results[e.activity].push({ team: e.team, value: r.value, text: e.text || "", option: e.option || "", dir: e.dir || "min", ts: r.ts });
   });
   Object.keys(results).forEach(function (a) {
     var list = results[a];
@@ -97,7 +99,7 @@ function ltAggregate(events) {
   leaderboard.forEach(function (r, i) { r.rank = i + 1; });
 
   return {
-    ok: true, teams: Object.keys(teams).sort(), votes: votes, results: results,
+    ok: true, teams: Object.keys(teams).sort(), votes: votes, voted: voted, results: results,
     texts: texts, peer: peer, leaderboard: leaderboard, eventCount: events.length
   };
 }

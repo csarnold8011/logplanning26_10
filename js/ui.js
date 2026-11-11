@@ -38,6 +38,11 @@
     if (st && st.texts && st.texts[id] && st.texts[id].some(r => r.team === LT.api.team)) return true;
     return false;
   }
+  // The student's own best result on the server (to restore a submission on another computer)
+  function serverResult(id) {
+    const st = LT.api.state;
+    return (st && st.results && st.results[id] && st.results[id].find(r => r.team === LT.api.team)) || null;
+  }
 
   async function copy(text) {
     try { await navigator.clipboard.writeText(text); return true; }
@@ -96,6 +101,8 @@
 
     function render() {
       const st = LT.api.state;
+      const sv = st && st.voted && st.voted[LT.api.team] && st.voted[LT.api.team][id];
+      if (sv && !my.get("vote_" + id)) { my.put("vote_" + id, sv); my.put("done_" + id, true); sel = new Set(sv.split("|").filter(Boolean)); changed(); }
       const counts = (st && st.votes && st.votes[id]) || {};
       const total = Object.values(counts).reduce((s, v) => s + v, 0);
       const voted = !!my.get("vote_" + id);
@@ -351,5 +358,5 @@
     return `<details class="box modszer"><summary><span class="ikon">${icon || "Σ"}</span><span>${title}<small>${sub}</small></span></summary><div class="tartalom">${html}</div></details>`;
   }
 
-  LT.ui = { esc, $, $$, el, toast, my, done, copy, submit, gate, vote, voted, board, textBox, aiCard, hbars, lines, kpi, step, method, changed };
+  LT.ui = { esc, $, $$, el, toast, my, done, serverResult, copy, submit, gate, vote, voted, board, textBox, aiCard, hbars, lines, kpi, step, method, changed };
 })();

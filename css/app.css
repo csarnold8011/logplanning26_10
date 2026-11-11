@@ -434,3 +434,8 @@ details.box.modszer > summary .ikon { background: #dceaf3; color: var(--mate-kek
 .method-flow > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: .86rem; }
 .method-flow > div b { display: block; color: var(--brand-2); }
 .modszer pre { font-family: var(--mono); font-size: .8rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px; overflow: auto; }
+
+@media (max-width: 720px) {
+  header.top { position: static; }
+  nav.tabs { top: 0; }
+}

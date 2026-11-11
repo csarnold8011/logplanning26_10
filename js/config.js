@@ -3,7 +3,7 @@ window.LT_CONFIG = {
   // The ".../exec" URL of the Apps Script web app (see README.md).
   // If left empty, the page runs in LOCAL MODE: everything works, but votes and the
   // leaderboard are only aggregated on this computer (in this browser).
-  API_URL: "",
+  API_URL: "https://script.google.com/macros/s/AKfycbzu2icppOX124E9ukcopcCAx7s1hyhZ00vIPTSfrwsVKMCBSxDIg7HmOcDt0ISXLds/exec",
 
   // Default session code. Can be overridden in the link: index.html?s=KEST26
   // Tip: use the SAME code for both sessions, so the leaderboard accumulates.
